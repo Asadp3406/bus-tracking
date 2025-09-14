@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartBus Tracker - Live Demo</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        #map { height: 100vh; }
+        .bus-marker {
+            background: #10b981;
+            border: 3px solid white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        .bus-marker::before {
+            content: '';
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #10b981;
+            opacity: 0.3;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.5); opacity: 0.1; }
+            100% { transform: scale(1); opacity: 0.3; }
+        }
+        .info-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 1000;
+            min-width: 350px;
+        }
+        .stats-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        .bus-list {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 800px;
+            width: 90%;
+        }
+        .bus-card {
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-right: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-width: 200px;
+        }
+        .bus-card:hover {
+            background: #e5e7eb;
+            transform: scale(1.02);
+        }
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: blink 2s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .route-line {
+            stroke: #3b82f6;
+            stroke-width: 3;
+            stroke-opacity: 0.8;
+            fill: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- Stats Panel -->
+    <div class="stats-panel">
+        <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+            🚌 SmartBus Tracker
+            <span class="ml-2 live-indicator"></span>
+            <span class="ml-1 text-sm text-green-600">LIVE</span>
+        </h2>
+        <div class="space-y-3">
+            <div class="flex justify-between items-center">
+                <span class="text-gray-600">Active Buses:</span>
+                <span class="font-bold text-green-600" id="activeBuses">5</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-gray-600">Total Routes:</span>
+                <span class="font-bold text-blue-600">3</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-gray-600">Avg Speed:</span>
+                <span class="font-bold text-purple-600" id="avgSpeed">32 km/h</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-gray-600">Passengers:</span>
+                <span class="font-bold text-orange-600">247</span>
+            </div>
+        </div>
+        <button onclick="toggleSimulation()" class="mt-4 w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+            <span id="simBtn">⏸ Pause Simulation</span>
+        </button>
+    </div>
+
+    <!-- Bus Info Panel -->
+    <div class="info-panel" id="infoPanel" style="display: none;">
+        <h3 class="text-lg font-bold text-gray-800 mb-3">Bus Details</h3>
+        <div class="space-y-2">
+            <div class="flex justify-between">
+                <span class="text-gray-600">Bus ID:</span>
+                <span class="font-semibold" id="busId">-</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">Route:</span>
+                <span class="font-semibold" id="busRoute">-</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">Speed:</span>
+                <span class="font-semibold" id="busSpeed">-</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">Next Stop:</span>
+                <span class="font-semibold" id="nextStop">-</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">ETA:</span>
+                <span class="font-semibold text-green-600" id="eta">-</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">Passengers:</span>
+                <span class="font-semibold" id="passengers">-</span>
+            </div>
+        </div>
+        <div class="mt-4 pt-4 border-t">
+            <div class="text-sm text-gray-600">Driver: Rajesh Kumar</div>
+            <div class="text-sm text-gray-600">Contact: +91 98765 43210</div>
+        </div>
+    </div>
+
+    <!-- Active Buses List -->
+    <div class="bus-list">
+        <h3 class="font-bold text-gray-800 mb-3">Active Buses (Click to Track)</h3>
+        <div class="flex overflow-x-auto pb-2" id="busList">
+            <!-- Bus cards will be inserted here -->
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize map centered on Pune
+        const map = L.map('map').setView([18.5204, 73.8567], 13);
+
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Bus data
+        const buses = [
+            {
+                id: 'MH12-AB-1234',
+                route: 'Route 1: Katraj to Shivajinagar',
+                lat: 18.5074,
+                lng: 73.8077,
+                speed: 35,
+                bearing: 45,
+                nextStop: 'Swargate',
+                eta: 5,
+                passengers: 42,
+                capacity: 60,
+                color: '#10b981'
+            },
+            {
+                id: 'MH12-CD-5678',
+                route: 'Route 2: Hadapsar to Pimpri',
+                lat: 18.5204,
+                lng: 73.8567,
+                speed: 28,
+                bearing: 90,
+                nextStop: 'Pune Station',
+                eta: 8,
+                passengers: 38,
+                capacity: 60,
+                color: '#3b82f6'
+            },
+            {
+                id: 'MH12-EF-9012',
+                route: 'Route 3: Kothrud to Viman Nagar',
+                lat: 18.5362,
+                lng: 73.8421,
+                speed: 32,
+                bearing: 180,
+                nextStop: 'Deccan',
+                eta: 3,
+                passengers: 55,
+                capacity: 60,
+                color: '#f59e0b'
+            },
+            {
+                id: 'MH12-GH-3456',
+                route: 'Route 1: Katraj to Shivajinagar',
+                lat: 18.4989,
+                lng: 73.8543,
+                speed: 40,
+                bearing: 270,
+                nextStop: 'Market Yard',
+                eta: 7,
+                passengers: 48,
+                capacity: 60,
+                color: '#10b981'
+            },
+            {
+                id: 'MH12-IJ-7890',
+                route: 'Route 2: Hadapsar to Pimpri',
+                lat: 18.5511,
+                lng: 73.8789,
+                speed: 25,
+                bearing: 120,
+                nextStop: 'Koregaon Park',
+                eta: 10,
+                passengers: 34,
+                capacity: 60,
+                color: '#3b82f6'
+            }
+        ];
+
+        // Routes
+        const routes = [
+            {
+                name: 'Route 1',
+                color: '#10b981',
+                points: [
+                    [18.4575, 73.8677], // Katraj
+                    [18.4989, 73.8543], // Market Yard
+                    [18.5074, 73.8077], // Swargate
+                    [18.5204, 73.8567], // Pune Station
+                    [18.5308, 73.8474]  // Shivajinagar
+                ]
+            },
+            {
+                name: 'Route 2',
+                color: '#3b82f6',
+                points: [
+                    [18.5018, 73.9200], // Hadapsar
+                    [18.5362, 73.8941], // Koregaon Park
+                    [18.5204, 73.8567], // Pune Station
+                    [18.5433, 73.8097], // Pimpri
+                ]
+            },
+            {
+                name: 'Route 3',
+                color: '#f59e0b',
+                points: [
+                    [18.5074, 73.8077], // Kothrud
+                    [18.5204, 73.8421], // Deccan
+                    [18.5362, 73.8567], // FC Road
+                    [18.5602, 73.9087]  // Viman Nagar
+                ]
+            }
+        ];
+
+        // Draw routes
+        routes.forEach(route => {
+            L.polyline(route.points, {
+                color: route.color,
+                weight: 4,
+                opacity: 0.6
+            }).addTo(map);
+        });
+
+        // Add stops
+        const stops = [
+            { name: 'Katraj', lat: 18.4575, lng: 73.8677 },
+            { name: 'Swargate', lat: 18.5074, lng: 73.8077 },
+            { name: 'Pune Station', lat: 18.5204, lng: 73.8567 },
+            { name: 'Shivajinagar', lat: 18.5308, lng: 73.8474 },
+            { name: 'Hadapsar', lat: 18.5018, lng: 73.9200 },
+            { name: 'Koregaon Park', lat: 18.5362, lng: 73.8941 },
+            { name: 'Deccan', lat: 18.5204, lng: 73.8421 },
+            { name: 'Viman Nagar', lat: 18.5602, lng: 73.9087 }
+        ];
+
+        stops.forEach(stop => {
+            L.circleMarker([stop.lat, stop.lng], {
+                radius: 8,
+                fillColor: '#6b7280',
+                color: '#fff',
+                weight: 2,
+                fillOpacity: 1
+            }).bindPopup(`<b>${stop.name}</b><br>Bus Stop`).addTo(map);
+        });
+
+        // Bus markers
+        const busMarkers = {};
+
+        // Custom bus icon
+        const createBusIcon = (color) => {
+            return L.divIcon({
+                className: 'custom-bus-icon',
+                html: `<div class="bus-marker" style="background: ${color};">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                        <path d="M4 16V6C4 5.45 4.45 5 5 5H19C19.55 5 20 5.45 20 6V16C20 16.55 19.55 17 19 17H5C4.45 17 4 16.55 4 16ZM7.5 12C6.67 12 6 11.33 6 10.5S6.67 9 7.5 9 9 9.67 9 10.5 8.33 12 7.5 12ZM16.5 12C15.67 12 15 11.33 15 10.5S15.67 9 16.5 9 18 9.67 18 10.5 17.33 12 16.5 12ZM6 18H8V19H16V18H18V20C18 20.55 17.55 21 17 21H7C6.45 21 6 20.55 6 20V18Z"/>
+                    </svg>
+                </div>`,
+                iconSize: [30, 30],
+                iconAnchor: [15, 15]
+            });
+        };
+
+        // Add buses to map
+        buses.forEach(bus => {
+            const marker = L.marker([bus.lat, bus.lng], {
+                icon: createBusIcon(bus.color),
+                title: bus.id
+            }).addTo(map);
+
+            marker.bindPopup(`
+                <div style="min-width: 200px;">
+                    <h4 style="margin: 0 0 8px 0; font-weight: bold;">${bus.id}</h4>
+                    <div style="font-size: 12px; color: #666;">
+                        <div>Route: ${bus.route}</div>
+                        <div>Speed: ${bus.speed} km/h</div>
+                        <div>Next Stop: ${bus.nextStop}</div>
+                        <div>ETA: ${bus.eta} minutes</div>
+                        <div>Passengers: ${bus.passengers}/${bus.capacity}</div>
+                    </div>
+                </div>
+            `);
+
+            marker.on('click', () => selectBus(bus));
+            busMarkers[bus.id] = marker;
+        });
+
+        // Create bus list
+        function createBusList() {
+            const listContainer = document.getElementById('busList');
+            listContainer.innerHTML = '';
+            
+            buses.forEach(bus => {
+                const card = document.createElement('div');
+                card.className = 'bus-card';
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-semibold text-sm">${bus.id}</span>
+                        <span class="live-indicator"></span>
+                    </div>
+                    <div class="text-xs text-gray-600 space-y-1">
+                        <div>${bus.route.split(':')[1]}</div>
+                        <div>Speed: ${bus.speed} km/h</div>
+                        <div>ETA: ${bus.eta} min to ${bus.nextStop}</div>
+                        <div class="flex justify-between mt-2">
+                            <span>👥 ${bus.passengers}/${bus.capacity}</span>
+                            <span style="color: ${bus.color};">●</span>
+                        </div>
+                    </div>
+                `;
+                card.onclick = () => {
+                    selectBus(bus);
+                    map.setView([bus.lat, bus.lng], 16);
+                };
+                listContainer.appendChild(card);
+            });
+        }
+
+        // Select bus
+        function selectBus(bus) {
+            document.getElementById('infoPanel').style.display = 'block';
+            document.getElementById('busId').textContent = bus.id;
+            document.getElementById('busRoute').textContent = bus.route.split(':')[1];
+            document.getElementById('busSpeed').textContent = bus.speed + ' km/h';
+            document.getElementById('nextStop').textContent = bus.nextStop;
+            document.getElementById('eta').textContent = bus.eta + ' minutes';
+            document.getElementById('passengers').textContent = `${bus.passengers}/${bus.capacity}`;
+            
+            busMarkers[bus.id].openPopup();
+        }
+
+        // Simulate bus movement
+        let simulationRunning = true;
+        function simulateBusMovement() {
+            if (!simulationRunning) return;
+            
+            buses.forEach((bus, index) => {
+                // Simulate movement
+                const movement = 0.001;
+                const angle = (Date.now() / 1000 + index * 60) * 0.1;
+                
+                bus.lat += Math.sin(angle) * movement;
+                bus.lng += Math.cos(angle) * movement;
+                
+                // Update speed randomly
+                bus.speed = Math.floor(20 + Math.random() * 30);
+                
+                // Update ETA
+                bus.eta = Math.max(1, bus.eta - 0.1 + Math.random() * 0.2);
+                
+                // Update passengers randomly
+                if (Math.random() > 0.95) {
+                    bus.passengers = Math.min(bus.capacity, Math.max(10, bus.passengers + Math.floor(Math.random() * 10 - 5)));
+                }
+                
+                // Update marker position
+                const marker = busMarkers[bus.id];
+                marker.setLatLng([bus.lat, bus.lng]);
+                
+                // Update popup if open
+                if (marker.isPopupOpen()) {
+                    marker.setPopupContent(`
+                        <div style="min-width: 200px;">
+                            <h4 style="margin: 0 0 8px 0; font-weight: bold;">${bus.id}</h4>
+                            <div style="font-size: 12px; color: #666;">
+                                <div>Route: ${bus.route}</div>
+                                <div>Speed: ${bus.speed} km/h</div>
+                                <div>Next Stop: ${bus.nextStop}</div>
+                                <div>ETA: ${Math.round(bus.eta)} minutes</div>
+                                <div>Passengers: ${bus.passengers}/${bus.capacity}</div>
+                            </div>
+                        </div>
+                    `);
+                }
+            });
+            
+            // Update average speed
+            const avgSpeed = Math.round(buses.reduce((sum, bus) => sum + bus.speed, 0) / buses.length);
+            document.getElementById('avgSpeed').textContent = avgSpeed + ' km/h';
+            
+            // Update bus list
+            createBusList();
+        }
+
+        // Toggle simulation
+        function toggleSimulation() {
+            simulationRunning = !simulationRunning;
+            document.getElementById('simBtn').textContent = simulationRunning ? '⏸ Pause Simulation' : '▶ Resume Simulation';
+            if (simulationRunning) {
+                simulateBusMovement();
+            }
+        }
+
+        // Start simulation
+        createBusList();
+        setInterval(simulateBusMovement, 2000); // Update every 2 seconds
+
+        // Add user location (optional)
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                const userLat = position.coords.latitude;
+                const userLng = position.coords.longitude;
+                
+                L.marker([userLat, userLng], {
+                    icon: L.divIcon({
+                        className: 'user-location',
+                        html: '<div style="width: 20px; height: 20px; background: #3b82f6; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>',
+                        iconSize: [20, 20],
+                        iconAnchor: [10, 10]
+                    })
+                }).addTo(map).bindPopup('Your Location');
+            });
+        }
+
+        // Make simulation global
+        window.toggleSimulation = toggleSimulation;
+    </script>
+</body>
+</html>
