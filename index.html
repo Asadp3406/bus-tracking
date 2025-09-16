@@ -1,0 +1,1704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartBus - Complete Management System</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map { height: 50vh; min-height: 300px; }
+        .bus-marker { 
+            background: #10b981; 
+            border: 3px solid white; 
+            border-radius: 50%; 
+            width: 20px; 
+            height: 20px; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .stop-marker { 
+            background: #6b7280; 
+            border: 2px solid white; 
+            border-radius: 50%; 
+            width: 12px; 
+            height: 12px; 
+        }
+        .modal { 
+            display: none; 
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        .user-tab { cursor: pointer; transition: all 0.3s; }
+        .user-tab.active { background-color: #3b82f6; color: white; }
+        .admin-nav-btn { cursor: pointer; transition: all 0.3s; }
+        .admin-nav-btn.active { background-color: #3b82f6 !important; color: white !important; }
+        .suggestions { 
+            position: absolute; 
+            z-index: 50; 
+            background: white; 
+            border: 1px solid #d1d5db; 
+            border-radius: 0.5rem; 
+            margin-top: 0.25rem; 
+            max-height: 200px; 
+            overflow-y: auto; 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .suggestion-item {
+            padding: 0.75rem;
+            cursor: pointer;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .suggestion-item:hover {
+            background-color: #f9fafb;
+        }
+        .suggestion-item:last-child {
+            border-bottom: none;
+        }
+        
+        /* Responsive improvements */
+        @media (max-width: 768px) {
+            #map { height: 40vh; min-height: 250px; }
+            .grid { grid-template-columns: 1fr; }
+            .flex-wrap { flex-direction: column; }
+            .user-tab { padding: 0.5rem 1rem; font-size: 0.875rem; }
+        }
+        
+        @media (max-width: 640px) {
+            .px-4 { padding-left: 1rem; padding-right: 1rem; }
+            .py-6 { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+            .text-2xl { font-size: 1.5rem; }
+            .gap-4 { gap: 0.75rem; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-blue-600 text-white shadow-lg sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col sm:flex-row justify-between items-center py-4 gap-4">
+                <div class="flex items-center">
+                    <h1 class="text-xl sm:text-2xl font-bold">🚌 SmartBus Tracker</h1>
+                    <span class="ml-3 px-2 py-1 bg-green-500 text-white text-xs font-medium rounded-full" id="systemStatus">
+                        ONLINE
+                    </span>
+                </div>
+                
+                <!-- User Type Selector -->
+                <div class="flex bg-blue-700 rounded-lg p-1">
+                    <button onclick="switchUserType('passenger')" class="user-tab px-3 sm:px-4 py-2 rounded-md text-sm font-medium active" id="passengerTab">
+                        👥 Passenger
+                    </button>
+                    <button onclick="switchUserType('admin')" class="user-tab px-3 sm:px-4 py-2 rounded-md text-sm font-medium" id="adminTab">
+                        🔧 Admin
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Passenger Interface -->
+    <div id="passengerInterface" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+        <!-- Search Section -->
+        <div class="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6">
+            <h2 class="text-lg sm:text-xl font-bold text-gray-900 mb-4">🔍 Find Your Bus</h2>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                <div class="relative">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">From</label>
+                    <input type="text" id="fromStop" placeholder="Enter starting point" 
+                           class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <div id="fromSuggestions" class="suggestions hidden"></div>
+                </div>
+                
+                <div class="relative">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">To</label>
+                    <input type="text" id="toStop" placeholder="Enter destination" 
+                           class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <div id="toSuggestions" class="suggestions hidden"></div>
+                </div>
+                
+                <div class="flex items-end">
+                    <button onclick="searchRoutes()" class="w-full bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 font-medium transition-colors">
+                        🔍 Search Routes
+                    </button>
+                </div>
+            </div>
+
+            <!-- Quick Search Options -->
+            <div class="flex flex-wrap gap-2 items-center">
+                <span class="text-sm text-gray-600">Quick searches:</span>
+                <button onclick="quickSearch('Katraj', 'Shivajinagar')" class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm hover:bg-gray-200 transition-colors">
+                    Katraj → Shivajinagar
+                </button>
+                <button onclick="quickSearch('Hadapsar', 'Pimpri')" class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm hover:bg-gray-200 transition-colors">
+                    Hadapsar → Pimpri
+                </button>
+                <button onclick="quickSearch('Kothrud', 'Viman Nagar')" class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm hover:bg-gray-200 transition-colors">
+                    Kothrud → Viman Nagar
+                </button>
+            </div>
+        </div>
+
+        <!-- Search Results -->
+        <div id="searchResults" class="hidden bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">🚌 Available Routes</h3>
+            <div id="routesList" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <!-- Admin Interface -->
+    <div id="adminInterface" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+        <!-- Admin Navigation -->
+        <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+            <div class="flex flex-wrap gap-2">
+                <button onclick="showAdminSection('dashboard')" class="admin-nav-btn active px-4 py-2 rounded-lg font-medium transition-colors">
+                    📊 Dashboard
+                </button>
+                <button onclick="showAdminSection('buses')" class="admin-nav-btn text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-lg font-medium transition-colors">
+                    🚌 Buses
+                </button>
+                <button onclick="showAdminSection('routes')" class="admin-nav-btn text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-lg font-medium transition-colors">
+                    🗺️ Routes
+                </button>
+                <button onclick="showAdminSection('drivers')" class="admin-nav-btn text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-lg font-medium transition-colors">
+                    👨‍💼 Drivers
+                </button>
+            </div>
+        </div>
+
+        <!-- Admin Dashboard -->
+        <div id="admin-dashboard" class="admin-section">
+            <h2 class="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">Admin Dashboard</h2>
+            
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-blue-500 text-white text-xl">🚌</div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-600">Active Buses</p>
+                            <p class="text-xl sm:text-2xl font-bold text-gray-900" id="activeBusesCount">0</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-green-500 text-white text-xl">🗺️</div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-600">Total Routes</p>
+                            <p class="text-xl sm:text-2xl font-bold text-gray-900" id="totalRoutesCount">0</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-purple-500 text-white text-xl">👥</div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-600">Total Passengers</p>
+                            <p class="text-xl sm:text-2xl font-bold text-gray-900" id="totalPassengersCount">0</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6">
+                    <div class="flex items-center">
+                        <div class="p-3 rounded-full bg-orange-500 text-white text-xl">⚡</div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-600">Avg Speed</p>
+                            <p class="text-xl sm:text-2xl font-bold text-gray-900" id="avgSpeedCount">0 km/h</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bus Management -->
+        <div id="admin-buses" class="admin-section hidden">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                <h2 class="text-2xl sm:text-3xl font-bold text-gray-900">Bus Management</h2>
+                <button onclick="openModal('bus')" class="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                    + Add New Bus
+                </button>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bus ID</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Route</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Driver</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Occupancy</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="busesTableBody" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Route Management -->
+        <div id="admin-routes" class="admin-section hidden">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                <h2 class="text-2xl sm:text-3xl font-bold text-gray-900">Route Management</h2>
+                <button onclick="openModal('route')" class="w-full sm:w-auto bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
+                    + Add New Route
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6" id="routesGrid"></div>
+        </div>
+
+        <!-- Driver Management -->
+        <div id="admin-drivers" class="admin-section hidden">
+            <h2 class="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">Driver Management</h2>
+            
+            <div class="bg-white rounded-lg shadow overflow-hidden overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Driver</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Bus</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Route</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
+                        </tr>
+                    </thead>
+                    <tbody id="driversTableBody" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared Live Map -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+        <div class="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                <h3 class="text-lg font-bold text-gray-900">🗺️ Live Bus Tracking</h3>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="findNearbyBuses()" class="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm transition-colors">
+                        📍 Find Nearby
+                    </button>
+                    <button onclick="showAllRoutes()" class="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm transition-colors">
+                        🗺️ Show All Routes
+                    </button>
+                    <button onclick="refreshMap()" class="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm transition-colors">
+                        🔄 Refresh
+                    </button>
+                </div>
+            </div>
+            <div id="map" class="rounded-lg"></div>
+        </div>
+
+        <!-- Live Bus Information -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            <!-- Nearby Buses -->
+            <div class="bg-white rounded-lg shadow-md p-4 sm:p-6">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">🚌 Live Buses</h3>
+                <div id="nearbyBusesList" class="space-y-3">
+                    <div class="text-center py-4 text-gray-500">Loading buses...</div>
+                </div>
+            </div>
+
+            <!-- Bus Arrival Times -->
+            <div class="bg-white rounded-lg shadow-md p-4 sm:p-6">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">⏰ Next Arrivals</h3>
+                <div class="mb-4">
+                    <select id="stopSelector" onchange="getStopArrivals()" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select a bus stop</option>
+                    </select>
+                </div>
+                <div id="arrivalsList" class="space-y-3">
+                    <p class="text-gray-500 text-center py-4">Select a bus stop to see arrival times</p>
+                </div>
+            </div>
+        </div>
+    </div>   
+ <!-- Modal for Adding/Editing -->
+    <div id="modal" class="modal">
+        <div class="bg-white rounded-lg max-w-md w-full mx-4 p-6 max-h-screen overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-medium text-gray-900" id="modalTitle">Add New Item</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <form id="modalForm">
+                <div id="modalContent"></div>
+                <div class="flex flex-col sm:flex-row justify-end gap-3 mt-6">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+                        Save
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bus Details Modal -->
+    <div id="busModal" class="modal">
+        <div class="bg-white rounded-lg max-w-md w-full mx-4 p-6 max-h-screen overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-medium text-gray-900" id="busModalTitle">Bus Details</h3>
+                <button onclick="closeBusModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div id="busModalContent"></div>
+            <div class="flex flex-col sm:flex-row gap-3 mt-6">
+                <button onclick="trackBus()" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                    🎯 Track Bus
+                </button>
+                <button onclick="setNotification()" class="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors">
+                    🔔 Notify Me
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loadingIndicator" class="fixed top-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+            Loading...
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Global variables
+        let buses = [];
+        let routes = [];
+        let drivers = [];
+        let stops = [];
+        let map = null;
+        let busMarkers = {};
+        let userLocation = null;
+        let selectedBus = null;
+        let currentUserType = 'passenger';
+        const API_BASE_URL = 'http://localhost:3000/api';
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚌 SmartBus Dashboard Initializing...');
+            showLoading(true);
+            initializeMap();
+            fetchData();
+            setupSearchAutocomplete();
+            getUserLocation();
+            setInterval(fetchData, 10000); // Refresh every 10 seconds
+        });
+
+        // Show/hide loading indicator
+        function showLoading(show) {
+            const indicator = document.getElementById('loadingIndicator');
+            if (show) {
+                indicator.classList.remove('hidden');
+            } else {
+                indicator.classList.add('hidden');
+            }
+        }
+
+        // Initialize map
+        function initializeMap() {
+            try {
+                map = L.map('map').setView([18.5204, 73.8567], 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(map);
+                console.log('✅ Map initialized');
+                
+                // Make map responsive
+                setTimeout(() => {
+                    map.invalidateSize();
+                }, 100);
+            } catch (error) {
+                console.error('❌ Map initialization failed:', error);
+            }
+        }
+
+        // Fetch data from API with fallback
+        async function fetchData() {
+            try {
+                console.log('📡 Fetching data from API...');
+                
+                const responses = await Promise.allSettled([
+                    fetch(`${API_BASE_URL}/buses`),
+                    fetch(`${API_BASE_URL}/routes`),
+                    fetch(`${API_BASE_URL}/drivers`)
+                ]);
+
+                // Handle buses
+                if (responses[0].status === 'fulfilled' && responses[0].value.ok) {
+                    const busData = await responses[0].value.json();
+                    buses = busData.data || [];
+                } else {
+                    console.warn('⚠️ Using fallback bus data');
+                    loadFallbackBuses();
+                }
+
+                // Handle routes
+                if (responses[1].status === 'fulfilled' && responses[1].value.ok) {
+                    const routeData = await responses[1].value.json();
+                    routes = routeData.data || [];
+                } else {
+                    console.warn('⚠️ Using fallback route data');
+                    loadFallbackRoutes();
+                }
+
+                // Handle drivers
+                if (responses[2].status === 'fulfilled' && responses[2].value.ok) {
+                    const driverData = await responses[2].value.json();
+                    drivers = driverData.data || [];
+                } else {
+                    console.warn('⚠️ Using fallback driver data');
+                    drivers = buses.map(bus => bus.driver).filter(d => d);
+                }
+
+                console.log(`✅ Data loaded: ${buses.length} buses, ${routes.length} routes, ${drivers.length} drivers`);
+
+                updateMap();
+                updateNearbyBuses();
+                populateStopSelector();
+                
+                if (currentUserType === 'admin') {
+                    updateAdminDashboard();
+                    updateBusesTable();
+                    updateRoutesGrid();
+                    updateDriversTable();
+                }
+                
+                showLoading(false);
+                updateSystemStatus('ONLINE');
+            } catch (error) {
+                console.error('❌ Error fetching data:', error);
+                loadFallbackData();
+                showLoading(false);
+                updateSystemStatus('OFFLINE');
+            }
+        }
+
+        // Load fallback data when API is not available
+        function loadFallbackData() {
+            loadFallbackBuses();
+            loadFallbackRoutes();
+            updateMap();
+            updateNearbyBuses();
+            populateStopSelector();
+        }
+
+        function loadFallbackBuses() {
+            buses = [
+                {
+                    id: 'MH12-AB-1234',
+                    routeId: 1,
+                    route: 'Route 1: Katraj to Shivajinagar',
+                    lat: 18.5074,
+                    lng: 73.8077,
+                    speed: 35,
+                    nextStop: 'Swargate',
+                    nextStopId: 2,
+                    eta: 5,
+                    passengers: 42,
+                    capacity: 60,
+                    status: 'active',
+                    driver: { name: 'Rajesh Kumar', phone: '+91-9876543210', id: 'D001' },
+                    busType: 'AC',
+                    fare: 15,
+                    delay: 2,
+                    fuelLevel: 75,
+                    emergencyStatus: false
+                },
+                {
+                    id: 'MH12-CD-5678',
+                    routeId: 2,
+                    route: 'Route 2: Hadapsar to Pimpri',
+                    lat: 18.5204,
+                    lng: 73.8567,
+                    speed: 28,
+                    nextStop: 'Pune Station',
+                    nextStopId: 4,
+                    eta: 8,
+                    passengers: 38,
+                    capacity: 60,
+                    status: 'active',
+                    driver: { name: 'Amit Sharma', phone: '+91-9876543211', id: 'D002' },
+                    busType: 'Non-AC',
+                    fare: 10,
+                    delay: -1,
+                    fuelLevel: 60,
+                    emergencyStatus: false
+                },
+                {
+                    id: 'MH12-EF-9012',
+                    routeId: 3,
+                    route: 'Route 3: Kothrud to Viman Nagar',
+                    lat: 18.5362,
+                    lng: 73.8421,
+                    speed: 32,
+                    nextStop: 'Deccan',
+                    nextStopId: 6,
+                    eta: 3,
+                    passengers: 55,
+                    capacity: 60,
+                    status: 'active',
+                    driver: { name: 'Priya Patel', phone: '+91-9876543212', id: 'D003' },
+                    busType: 'Electric',
+                    fare: 12,
+                    delay: 0,
+                    fuelLevel: 85,
+                    emergencyStatus: false
+                }
+            ];
+        }
+
+        function loadFallbackRoutes() {
+            routes = [
+                {
+                    id: 1,
+                    name: 'Route 1: Katraj to Shivajinagar',
+                    routeNumber: '1A',
+                    color: '#10b981',
+                    stops: [
+                        { id: 1, name: 'Katraj', lat: 18.4575, lng: 73.8677, fare: 0 },
+                        { id: 2, name: 'Market Yard', lat: 18.4989, lng: 73.8543, fare: 5 },
+                        { id: 3, name: 'Swargate', lat: 18.5074, lng: 73.8077, fare: 10 },
+                        { id: 4, name: 'Pune Station', lat: 18.5204, lng: 73.8567, fare: 12 },
+                        { id: 5, name: 'Shivajinagar', lat: 18.5308, lng: 73.8474, fare: 15 }
+                    ],
+                    frequency: 15,
+                    operator: 'PMPML'
+                },
+                {
+                    id: 2,
+                    name: 'Route 2: Hadapsar to Pimpri',
+                    routeNumber: '2B',
+                    color: '#3b82f6',
+                    stops: [
+                        { id: 6, name: 'Hadapsar', lat: 18.5018, lng: 73.9200, fare: 0 },
+                        { id: 7, name: 'Koregaon Park', lat: 18.5362, lng: 73.8941, fare: 8 },
+                        { id: 8, name: 'Pune Station', lat: 18.5204, lng: 73.8567, fare: 10 },
+                        { id: 9, name: 'Pimpri', lat: 18.5433, lng: 73.8097, fare: 15 }
+                    ],
+                    frequency: 20,
+                    operator: 'PMPML'
+                },
+                {
+                    id: 3,
+                    name: 'Route 3: Kothrud to Viman Nagar',
+                    routeNumber: '3C',
+                    color: '#f59e0b',
+                    stops: [
+                        { id: 10, name: 'Kothrud', lat: 18.5074, lng: 73.8077, fare: 0 },
+                        { id: 11, name: 'Deccan', lat: 18.5204, lng: 73.8421, fare: 6 },
+                        { id: 12, name: 'FC Road', lat: 18.5362, lng: 73.8567, fare: 10 },
+                        { id: 13, name: 'Viman Nagar', lat: 18.5602, lng: 73.9087, fare: 12 }
+                    ],
+                    frequency: 12,
+                    operator: 'PMPML'
+                }
+            ];
+        }
+
+        // Update system status
+        function updateSystemStatus(status) {
+            const statusElement = document.getElementById('systemStatus');
+            if (status === 'ONLINE') {
+                statusElement.textContent = 'ONLINE';
+                statusElement.className = 'ml-3 px-2 py-1 bg-green-500 text-white text-xs font-medium rounded-full';
+            } else {
+                statusElement.textContent = 'OFFLINE';
+                statusElement.className = 'ml-3 px-2 py-1 bg-red-500 text-white text-xs font-medium rounded-full';
+            }
+        }
+
+        // Switch between user types
+        function switchUserType(type) {
+            currentUserType = type;
+            
+            // Update tab appearance
+            document.querySelectorAll('.user-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.getElementById(type + 'Tab').classList.add('active');
+            
+            // Show/hide interfaces
+            if (type === 'passenger') {
+                document.getElementById('passengerInterface').classList.remove('hidden');
+                document.getElementById('adminInterface').classList.add('hidden');
+            } else {
+                document.getElementById('passengerInterface').classList.add('hidden');
+                document.getElementById('adminInterface').classList.remove('hidden');
+                updateAdminDashboard();
+                updateBusesTable();
+                updateRoutesGrid();
+                updateDriversTable();
+            }
+            
+            console.log(`👤 Switched to ${type} mode`);
+        }
+
+        // Get user location
+        function getUserLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(position => {
+                    userLocation = [position.coords.latitude, position.coords.longitude];
+                    
+                    if (map) {
+                        L.marker(userLocation, {
+                            icon: L.divIcon({
+                                className: 'user-location',
+                                html: '<div style="width: 16px; height: 16px; background: #3b82f6; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
+                                iconSize: [16, 16]
+                            })
+                        }).addTo(map).bindPopup('📍 Your Location');
+                    }
+                    
+                    console.log('📍 User location obtained');
+                }, (error) => {
+                    console.warn('⚠️ Could not get user location:', error.message);
+                });
+            }
+        }
+
+        // Update map with buses and stops
+        function updateMap() {
+            if (!map) return;
+
+            // Clear existing bus markers
+            Object.values(busMarkers).forEach(marker => {
+                try {
+                    map.removeLayer(marker);
+                } catch (e) {
+                    console.warn('Could not remove marker:', e);
+                }
+            });
+            busMarkers = {};
+
+            // Add bus markers
+            buses.forEach(bus => {
+                if (bus.lat && bus.lng) {
+                    try {
+                        const marker = L.marker([bus.lat, bus.lng], {
+                            icon: L.divIcon({
+                                className: 'bus-marker',
+                                html: `<div class="bus-marker" style="background: ${getRouteColor(bus.routeId)};"><span style="color: white; font-size: 10px;">🚌</span></div>`,
+                                iconSize: [20, 20]
+                            })
+                        }).addTo(map);
+
+                        marker.bindPopup(`
+                            <div class="text-center p-2">
+                                <h4 class="font-bold text-sm">${bus.id}</h4>
+                                <p class="text-xs text-gray-600">${bus.route}</p>
+                                <p class="text-xs">Next: ${bus.nextStop} (${Math.round(bus.eta)} min)</p>
+                                <p class="text-xs">Occupancy: ${bus.passengers}/${bus.capacity}</p>
+                                <button onclick="showBusDetails('${bus.id}')" class="mt-2 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">
+                                    View Details
+                                </button>
+                            </div>
+                        `);
+
+                        busMarkers[bus.id] = marker;
+                    } catch (error) {
+                        console.warn('Could not add bus marker:', error);
+                    }
+                }
+            });
+
+            // Add stop markers
+            routes.forEach(route => {
+                if (route.stops) {
+                    route.stops.forEach(stop => {
+                        try {
+                            L.marker([stop.lat, stop.lng], {
+                                icon: L.divIcon({
+                                    className: 'stop-marker',
+                                    html: '<div class="stop-marker"></div>',
+                                    iconSize: [12, 12]
+                                })
+                            }).addTo(map).bindPopup(`
+                                <div class="text-center p-2">
+                                    <h4 class="font-bold text-sm">${stop.name}</h4>
+                                    <p class="text-xs text-gray-600">Bus Stop</p>
+                                    <button onclick="getStopETA(${stop.id})" class="mt-2 px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700">
+                                        Check Arrivals
+                                    </button>
+                                </div>
+                            `);
+                        } catch (error) {
+                            console.warn('Could not add stop marker:', error);
+                        }
+                    });
+                }
+            });
+
+            // Refresh map size
+            setTimeout(() => {
+                if (map) {
+                    map.invalidateSize();
+                }
+            }, 100);
+        }
+
+        // Refresh map
+        function refreshMap() {
+            showLoading(true);
+            fetchData();
+        }  
+      // Update nearby buses list
+        function updateNearbyBuses() {
+            const list = document.getElementById('nearbyBusesList');
+            if (!list) return;
+
+            list.innerHTML = '';
+
+            if (buses.length === 0) {
+                list.innerHTML = '<div class="text-center py-4 text-gray-500">No buses available</div>';
+                return;
+            }
+
+            // Sort buses by distance if user location is available
+            let sortedBuses = [...buses];
+            if (userLocation) {
+                sortedBuses = buses.sort((a, b) => {
+                    const distA = calculateDistance(userLocation[0], userLocation[1], a.lat, a.lng);
+                    const distB = calculateDistance(userLocation[0], userLocation[1], b.lat, b.lng);
+                    return distA - distB;
+                });
+            }
+
+            sortedBuses.slice(0, 5).forEach(bus => {
+                const occupancyRate = (bus.passengers / bus.capacity * 100).toFixed(0);
+                const distance = userLocation ? 
+                    calculateDistance(userLocation[0], userLocation[1], bus.lat, bus.lng).toFixed(1) : null;
+
+                const card = document.createElement('div');
+                card.className = 'p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors';
+                card.onclick = () => showBusDetails(bus.id);
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <h4 class="font-medium text-sm">${bus.id}</h4>
+                            <p class="text-xs text-gray-600">${bus.route.split(':')[1] || bus.route}</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs px-2 py-1 rounded-full ${
+                                bus.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            }">${bus.status}</span>
+                            ${bus.emergencyStatus ? '<div class="text-xs text-red-600 mt-1">🚨 Emergency</div>' : ''}
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-600 space-y-1">
+                        <div class="flex justify-between">
+                            <span>Next Stop:</span>
+                            <span class="font-medium">${bus.nextStop} (${Math.round(bus.eta)} min)</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Occupancy:</span>
+                            <span class="font-medium ${occupancyRate < 50 ? 'text-green-600' : occupancyRate < 80 ? 'text-yellow-600' : 'text-red-600'}">
+                                ${occupancyRate}% (${bus.passengers}/${bus.capacity})
+                            </span>
+                        </div>
+                        ${distance ? `
+                        <div class="flex justify-between">
+                            <span>Distance:</span>
+                            <span class="font-medium">${distance} km</span>
+                        </div>
+                        ` : ''}
+                        <div class="flex justify-between">
+                            <span>Speed:</span>
+                            <span class="font-medium">${bus.speed} km/h</span>
+                        </div>
+                    </div>
+                `;
+                
+                list.appendChild(card);
+            });
+        }
+
+        // Setup search autocomplete
+        function setupSearchAutocomplete() {
+            const fromInput = document.getElementById('fromStop');
+            const toInput = document.getElementById('toStop');
+            
+            if (fromInput && toInput) {
+                fromInput.addEventListener('input', (e) => showSuggestions(e.target.value, 'fromSuggestions'));
+                toInput.addEventListener('input', (e) => showSuggestions(e.target.value, 'toSuggestions'));
+                
+                // Hide suggestions when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!e.target.closest('.relative')) {
+                        document.getElementById('fromSuggestions').classList.add('hidden');
+                        document.getElementById('toSuggestions').classList.add('hidden');
+                    }
+                });
+            }
+        }
+
+        // Show search suggestions
+        function showSuggestions(query, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            if (query.length < 2) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            const allStops = [];
+            routes.forEach(route => {
+                if (route.stops) {
+                    route.stops.forEach(stop => {
+                        if (!allStops.find(s => s.id === stop.id)) {
+                            allStops.push({
+                                ...stop,
+                                routeName: route.name,
+                                routeNumber: route.routeNumber
+                            });
+                        }
+                    });
+                }
+            });
+
+            const filtered = allStops.filter(stop => 
+                stop.name.toLowerCase().includes(query.toLowerCase())
+            );
+
+            container.innerHTML = '';
+            
+            if (filtered.length === 0) {
+                const div = document.createElement('div');
+                div.className = 'suggestion-item text-gray-500';
+                div.textContent = 'No stops found';
+                container.appendChild(div);
+            } else {
+                filtered.slice(0, 5).forEach(stop => {
+                    const div = document.createElement('div');
+                    div.className = 'suggestion-item';
+                    div.innerHTML = `
+                        <div class="font-medium">${stop.name}</div>
+                        <div class="text-xs text-gray-500">${stop.routeNumber} - ${stop.routeName.split(':')[1]}</div>
+                    `;
+                    div.onclick = () => {
+                        if (containerId === 'fromSuggestions') {
+                            document.getElementById('fromStop').value = stop.name;
+                        } else {
+                            document.getElementById('toStop').value = stop.name;
+                        }
+                        container.classList.add('hidden');
+                    };
+                    container.appendChild(div);
+                });
+            }
+
+            container.classList.remove('hidden');
+        }
+
+        // Search routes
+        function searchRoutes() {
+            const from = document.getElementById('fromStop')?.value;
+            const to = document.getElementById('toStop')?.value;
+
+            if (!from || !to) {
+                alert('Please enter both starting point and destination');
+                return;
+            }
+
+            console.log(`🔍 Searching routes from ${from} to ${to}`);
+
+            const matchingRoutes = routes.filter(route => {
+                if (!route.stops) return false;
+                const hasFrom = route.stops.some(stop => 
+                    stop.name.toLowerCase().includes(from.toLowerCase())
+                );
+                const hasTo = route.stops.some(stop => 
+                    stop.name.toLowerCase().includes(to.toLowerCase())
+                );
+                return hasFrom && hasTo;
+            });
+
+            displaySearchResults(matchingRoutes, from, to);
+        }
+
+        // Display search results
+        function displaySearchResults(matchingRoutes, from, to) {
+            const resultsContainer = document.getElementById('searchResults');
+            const routesList = document.getElementById('routesList');
+
+            if (!resultsContainer || !routesList) return;
+
+            if (matchingRoutes.length === 0) {
+                routesList.innerHTML = `
+                    <div class="text-center py-8">
+                        <div class="text-4xl mb-4">🚌</div>
+                        <p class="text-gray-500 mb-2">No direct routes found between these stops.</p>
+                        <p class="text-sm text-gray-400">Try searching for nearby stops or check alternative routes.</p>
+                    </div>
+                `;
+            } else {
+                routesList.innerHTML = '';
+                matchingRoutes.forEach(route => {
+                    const routeBuses = buses.filter(bus => bus.routeId === route.id && bus.status === 'active');
+                    
+                    const card = document.createElement('div');
+                    card.className = 'border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow';
+                    card.innerHTML = `
+                        <div class="flex flex-col sm:flex-row justify-between items-start mb-3 gap-2">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <h4 class="font-bold text-lg">${route.routeNumber}</h4>
+                                    <div class="w-3 h-3 rounded-full" style="background-color: ${route.color}"></div>
+                                </div>
+                                <p class="text-gray-600 text-sm">${route.name}</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-sm text-gray-500">Frequency: ${route.frequency} min</span>
+                                <div class="text-sm text-gray-500">Operator: ${route.operator}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4">
+                            <div>
+                                <span class="text-gray-500">Active Buses:</span>
+                                <span class="font-medium ml-1 ${routeBuses.length > 0 ? 'text-green-600' : 'text-red-600'}">${routeBuses.length}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Total Stops:</span>
+                                <span class="font-medium ml-1">${route.stops?.length || 0}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Distance:</span>
+                                <span class="font-medium ml-1">${route.distance || 'N/A'} km</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Travel Time:</span>
+                                <span class="font-medium ml-1">${route.avgTravelTime || 'N/A'} min</span>
+                            </div>
+                        </div>
+
+                        ${routeBuses.length > 0 ? `
+                        <div class="mb-4">
+                            <h5 class="font-medium text-sm mb-2">Next Buses:</h5>
+                            <div class="flex flex-wrap gap-2">
+                                ${routeBuses.slice(0, 3).map(bus => `
+                                    <div class="bg-gray-50 rounded px-2 py-1 text-xs cursor-pointer hover:bg-gray-100" onclick="showBusDetails('${bus.id}')">
+                                        <span class="font-medium">${bus.id}</span> - ${Math.round(bus.eta)} min
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <button onclick="showRouteOnMap(${route.id})" class="flex-1 bg-blue-100 text-blue-700 py-2 rounded hover:bg-blue-200 transition-colors text-sm">
+                                📍 Show on Map
+                            </button>
+                            <button onclick="getFareForRoute(${route.id}, '${from}', '${to}')" class="flex-1 bg-green-100 text-green-700 py-2 rounded hover:bg-green-200 transition-colors text-sm">
+                                💰 Check Fare
+                            </button>
+                            <button onclick="trackRoute(${route.id})" class="flex-1 bg-purple-100 text-purple-700 py-2 rounded hover:bg-purple-200 transition-colors text-sm">
+                                🎯 Track Route
+                            </button>
+                        </div>
+                    `;
+                    routesList.appendChild(card);
+                });
+            }
+
+            resultsContainer.classList.remove('hidden');
+            
+            // Scroll to results
+            resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // Quick search
+        function quickSearch(from, to) {
+            const fromInput = document.getElementById('fromStop');
+            const toInput = document.getElementById('toStop');
+            
+            if (fromInput && toInput) {
+                fromInput.value = from;
+                toInput.value = to;
+                searchRoutes();
+            }
+        }
+
+        // Populate stop selector
+        function populateStopSelector() {
+            const selector = document.getElementById('stopSelector');
+            if (!selector) return;
+
+            selector.innerHTML = '<option value="">Select a bus stop</option>';
+
+            const allStops = [];
+            routes.forEach(route => {
+                if (route.stops) {
+                    route.stops.forEach(stop => {
+                        if (!allStops.find(s => s.id === stop.id)) {
+                            allStops.push({
+                                ...stop,
+                                routeName: route.name,
+                                routeNumber: route.routeNumber
+                            });
+                        }
+                    });
+                }
+            });
+
+            allStops.forEach(stop => {
+                const option = document.createElement('option');
+                option.value = stop.id;
+                option.textContent = `${stop.name} (${stop.routeNumber})`;
+                selector.appendChild(option);
+            });
+        }
+
+        // Get stop arrivals
+        async function getStopArrivals() {
+            const stopId = document.getElementById('stopSelector')?.value;
+            if (!stopId) return;
+
+            const arrivalsList = document.getElementById('arrivalsList');
+            if (!arrivalsList) return;
+
+            arrivalsList.innerHTML = '<div class="text-center py-4 text-gray-500">Loading arrivals...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/stops/${stopId}/eta`);
+                const data = await response.json();
+
+                if (data.success && data.data.length > 0) {
+                    arrivalsList.innerHTML = '';
+                    data.data.forEach(bus => {
+                        const card = document.createElement('div');
+                        card.className = 'p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors';
+                        card.onclick = () => showBusDetails(bus.busId);
+                        card.innerHTML = `
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h4 class="font-medium text-sm">${bus.routeNumber} - ${bus.busId}</h4>
+                                    <p class="text-xs text-gray-600">${bus.busType}</p>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-lg font-bold text-green-600">${bus.eta} min</span>
+                                    <p class="text-xs text-gray-500">
+                                        ${bus.passengers}/${bus.capacity} passengers
+                                    </p>
+                                </div>
+                            </div>
+                        `;
+                        arrivalsList.appendChild(card);
+                    });
+                } else {
+                    arrivalsList.innerHTML = '<p class="text-gray-500 text-center py-4">No buses approaching this stop currently.</p>';
+                }
+            } catch (error) {
+                console.error('Error fetching arrivals:', error);
+                // Simulate arrivals for demo
+                const simulatedArrivals = buses.filter(bus => Math.random() > 0.5).slice(0, 3);
+                if (simulatedArrivals.length > 0) {
+                    arrivalsList.innerHTML = '';
+                    simulatedArrivals.forEach(bus => {
+                        const card = document.createElement('div');
+                        card.className = 'p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors';
+                        card.onclick = () => showBusDetails(bus.id);
+                        card.innerHTML = `
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h4 class="font-medium text-sm">${routes.find(r => r.id === bus.routeId)?.routeNumber || 'N/A'} - ${bus.id}</h4>
+                                    <p class="text-xs text-gray-600">${bus.busType}</p>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-lg font-bold text-green-600">${Math.round(bus.eta)} min</span>
+                                    <p class="text-xs text-gray-500">
+                                        ${bus.passengers}/${bus.capacity} passengers
+                                    </p>
+                                </div>
+                            </div>
+                        `;
+                        arrivalsList.appendChild(card);
+                    });
+                } else {
+                    arrivalsList.innerHTML = '<p class="text-gray-500 text-center py-4">No buses approaching this stop currently.</p>';
+                }
+            }
+        }
+
+        function getStopETA(stopId) {
+            const selector = document.getElementById('stopSelector');
+            if (selector) {
+                selector.value = stopId;
+                getStopArrivals();
+            }
+        }    
+    // Admin functions
+        function updateAdminDashboard() {
+            const activeBusesCount = buses.filter(bus => bus.status === 'active').length;
+            const totalPassengers = buses.reduce((sum, bus) => sum + bus.passengers, 0);
+            const avgSpeed = buses.length > 0 ? Math.round(buses.reduce((sum, bus) => sum + bus.speed, 0) / buses.length) : 0;
+
+            document.getElementById('activeBusesCount').textContent = activeBusesCount;
+            document.getElementById('totalRoutesCount').textContent = routes.length;
+            document.getElementById('totalPassengersCount').textContent = totalPassengers;
+            document.getElementById('avgSpeedCount').textContent = avgSpeed + ' km/h';
+        }
+
+        function showAdminSection(section) {
+            // Hide all admin sections
+            document.querySelectorAll('.admin-section').forEach(sec => sec.classList.add('hidden'));
+            
+            // Show selected section
+            const targetSection = document.getElementById('admin-' + section);
+            if (targetSection) {
+                targetSection.classList.remove('hidden');
+            }
+            
+            // Update navigation buttons
+            document.querySelectorAll('.admin-nav-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.classList.add('text-gray-600');
+            });
+            
+            // Find and activate the clicked button
+            const clickedBtn = event.target;
+            clickedBtn.classList.add('active');
+            clickedBtn.classList.remove('text-gray-600');
+        }
+
+        function updateBusesTable() {
+            const tbody = document.getElementById('busesTableBody');
+            if (!tbody) return;
+
+            tbody.innerHTML = '';
+
+            buses.forEach(bus => {
+                const occupancyRate = (bus.passengers / bus.capacity * 100).toFixed(1);
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50';
+                row.innerHTML = `
+                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${bus.id}</td>
+                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bus.route.split(':')[1] || 'N/A'}</td>
+                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bus.driver?.name || 'N/A'}</td>
+                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            bus.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }">
+                            ${bus.status}
+                        </span>
+                        ${bus.emergencyStatus ? '<div class="text-xs text-red-600 mt-1">🚨 Emergency</div>' : ''}
+                    </td>
+                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div>${bus.passengers}/${bus.capacity}</div>
+                        <div class="text-xs text-gray-500">${occupancyRate}%</div>
+                    </td>
+                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button onclick="showBusDetails('${bus.id}')" class="text-blue-600 hover:text-blue-900 mr-2">View</button>
+                        <button onclick="editBus('${bus.id}')" class="text-indigo-600 hover:text-indigo-900 mr-2">Edit</button>
+                        <button onclick="deleteBus('${bus.id}')" class="text-red-600 hover:text-red-900">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function updateRoutesGrid() {
+            const grid = document.getElementById('routesGrid');
+            if (!grid) return;
+
+            grid.innerHTML = '';
+
+            routes.forEach(route => {
+                const routeBuses = buses.filter(bus => bus.routeId === route.id);
+                const activeBuses = routeBuses.filter(bus => bus.status === 'active').length;
+                
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-md transition-shadow';
+                card.innerHTML = `
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="text-lg font-medium text-gray-900">${route.routeNumber}</h3>
+                            <p class="text-sm text-gray-600">${route.name.split(':')[1] || route.name}</p>
+                        </div>
+                        <div class="w-4 h-4 rounded-full" style="background-color: ${route.color}"></div>
+                    </div>
+                    
+                    <div class="space-y-2 text-sm mb-4">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Active Buses:</span>
+                            <span class="font-medium ${activeBuses > 0 ? 'text-green-600' : 'text-red-600'}">${activeBuses}/${routeBuses.length}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Total Stops:</span>
+                            <span class="font-medium">${route.stops?.length || 0}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Frequency:</span>
+                            <span class="font-medium">${route.frequency} min</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Operator:</span>
+                            <span class="font-medium">${route.operator}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <button onclick="showRouteOnMap(${route.id})" class="flex-1 bg-blue-100 text-blue-700 px-3 py-2 rounded text-sm hover:bg-blue-200 transition-colors">
+                            📍 View
+                        </button>
+                        <button onclick="editRoute(${route.id})" class="flex-1 bg-green-100 text-green-700 px-3 py-2 rounded text-sm hover:bg-green-200 transition-colors">
+                            ✏️ Edit
+                        </button>
+                        <button onclick="deleteRoute(${route.id})" class="flex-1 bg-red-100 text-red-700 px-3 py-2 rounded text-sm hover:bg-red-200 transition-colors">
+                            🗑️ Delete
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function updateDriversTable() {
+            const tbody = document.getElementById('driversTableBody');
+            if (!tbody) return;
+
+            tbody.innerHTML = '';
+
+            buses.forEach(bus => {
+                if (bus.driver) {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-50';
+                    row.innerHTML = `
+                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm font-medium text-gray-900">${bus.driver.name}</div>
+                            <div class="text-sm text-gray-500">ID: ${bus.driver.id}</div>
+                            <div class="text-sm text-gray-500">License: ${bus.driver.license || 'N/A'}</div>
+                        </td>
+                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bus.id}</td>
+                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bus.route.split(':')[1] || 'N/A'}</td>
+                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                bus.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            }">
+                                ${bus.status}
+                            </span>
+                        </td>
+                        <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-900">${bus.driver.phone}</td>
+                    `;
+                    tbody.appendChild(row);
+                }
+            });
+        }
+
+        // Modal functions
+        function openModal(type, item = null) {
+            const modal = document.getElementById('modal');
+            const title = document.getElementById('modalTitle');
+            const content = document.getElementById('modalContent');
+
+            if (!modal || !title || !content) return;
+
+            title.textContent = item ? `Edit ${type}` : `Add New ${type}`;
+
+            if (type === 'bus') {
+                content.innerHTML = `
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Bus ID</label>
+                            <input type="text" name="id" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+                                   placeholder="e.g., MH12-AB-1234" ${item ? 'disabled' : ''} value="${item?.id || ''}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Route</label>
+                            <select name="routeId" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                                <option value="">Select Route</option>
+                                ${routes.map(route => `
+                                    <option value="${route.id}" ${item?.routeId === route.id ? 'selected' : ''}>
+                                        ${route.routeNumber} - ${route.name}
+                                    </option>
+                                `).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Bus Type</label>
+                            <select name="busType" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                                <option value="AC" ${item?.busType === 'AC' ? 'selected' : ''}>AC</option>
+                                <option value="Non-AC" ${item?.busType === 'Non-AC' ? 'selected' : ''}>Non-AC</option>
+                                <option value="Electric" ${item?.busType === 'Electric' ? 'selected' : ''}>Electric</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Capacity</label>
+                            <input type="number" name="capacity" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+                                   min="20" max="100" value="${item?.capacity || '60'}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Driver Name</label>
+                            <input type="text" name="driverName" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+                                   value="${item?.driver?.name || ''}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Driver Phone</label>
+                            <input type="tel" name="driverPhone" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+                                   value="${item?.driver?.phone || ''}">
+                        </div>
+                    </div>
+                `;
+            } else if (type === 'route') {
+                content.innerHTML = `
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Route Name</label>
+                            <input type="text" name="name" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+                                   placeholder="e.g., Route 1: Katraj to Shivajinagar" value="${item?.name || ''}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Route Number</label>
+                            <input type="text" name="routeNumber" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+                                   placeholder="e.g., 1A" value="${item?.routeNumber || ''}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Frequency (minutes)</label>
+                            <input type="number" name="frequency" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+                                   min="5" max="60" value="${item?.frequency || '15'}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Operator</label>
+                            <input type="text" name="operator" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+                                   value="${item?.operator || 'PMPML'}">
+                        </div>
+                        <div class="text-sm text-gray-600 bg-blue-50 p-3 rounded">
+                            💡 Note: For demo purposes, stops are auto-generated. In production, you would add a stops management interface.
+                        </div>
+                    </div>
+                `;
+            }
+
+            modal.classList.add('active');
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('modal');
+            if (modal) {
+                modal.classList.remove('active');
+            }
+        }
+
+        // Bus details modal
+        function showBusDetails(busId) {
+            const bus = buses.find(b => b.id === busId);
+            if (!bus) return;
+
+            selectedBus = bus;
+            const modal = document.getElementById('busModal');
+            const title = document.getElementById('busModalTitle');
+            const content = document.getElementById('busModalContent');
+
+            if (!modal || !title || !content) return;
+
+            title.textContent = `Bus ${bus.id}`;
+            
+            const occupancyRate = (bus.passengers / bus.capacity * 100).toFixed(1);
+            
+            content.innerHTML = `
+                <div class="space-y-4">
+                    <div class="bg-blue-50 rounded-lg p-4">
+                        <h4 class="font-bold">${bus.route}</h4>
+                        <div class="flex items-center mt-2 gap-2">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">${bus.busType}</span>
+                            <span class="text-sm">₹${bus.fare}</span>
+                            ${bus.emergencyStatus ? '<span class="px-2 py-1 bg-red-100 text-red-800 rounded text-sm">🚨 Emergency</span>' : ''}
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="text-center p-3 bg-gray-50 rounded-lg">
+                            <div class="text-2xl font-bold text-green-600">${Math.round(bus.eta)}</div>
+                            <div class="text-sm text-gray-600">Minutes to ${bus.nextStop}</div>
+                        </div>
+                        <div class="text-center p-3 bg-gray-50 rounded-lg">
+                            <div class="text-2xl font-bold text-blue-600">${bus.speed}</div>
+                            <div class="text-sm text-gray-600">km/h</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h5 class="font-medium mb-2">Occupancy</h5>
+                        <div class="flex justify-between items-center mb-2">
+                            <span>${bus.passengers}/${bus.capacity} passengers</span>
+                            <span class="font-medium">${occupancyRate}%</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div class="${
+                                occupancyRate < 50 ? 'bg-green-500' :
+                                occupancyRate < 80 ? 'bg-yellow-500' : 'bg-red-500'
+                            } h-2 rounded-full transition-all" style="width: ${occupancyRate}%"></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h5 class="font-medium mb-2">Driver Information</h5>
+                        <p class="font-medium">${bus.driver?.name || 'N/A'}</p>
+                        <p class="text-sm text-gray-600">${bus.driver?.phone || 'N/A'}</p>
+                        <p class="text-sm text-gray-600">License: ${bus.driver?.license || 'N/A'}</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="font-medium">Delay</div>
+                            <div class="${bus.delay > 0 ? 'text-red-600' : 'text-green-600'}">${bus.delay > 0 ? '+' : ''}${bus.delay} min</div>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="font-medium">Fuel Level</div>
+                            <div class="${bus.fuelLevel < 20 ? 'text-red-600' : 'text-green-600'}">${bus.fuelLevel}%</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            modal.classList.add('active');
+        }
+
+        function closeBusModal() {
+            const modal = document.getElementById('busModal');
+            if (modal) {
+                modal.classList.remove('active');
+            }
+            selectedBus = null;
+        }
+
+        function trackBus() {
+            if (!selectedBus || !map) return;
+            
+            map.setView([selectedBus.lat, selectedBus.lng], 16);
+            if (busMarkers[selectedBus.id]) {
+                busMarkers[selectedBus.id].openPopup();
+            }
+            closeBusModal();
+        }
+
+        function setNotification() {
+            if (!selectedBus) return;
+            
+            alert(`✅ Notification set! You'll be alerted when ${selectedBus.id} is approaching your stop.`);
+            closeBusModal();
+        }
+
+        // Utility functions
+        function findNearbyBuses() {
+            if (!userLocation) {
+                alert('Please enable location services to find nearby buses.');
+                return;
+            }
+
+            let nearestBus = null;
+            let minDistance = Infinity;
+
+            buses.forEach(bus => {
+                const distance = calculateDistance(userLocation[0], userLocation[1], bus.lat, bus.lng);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestBus = bus;
+                }
+            });
+
+            if (nearestBus && map) {
+                map.setView([nearestBus.lat, nearestBus.lng], 16);
+                if (busMarkers[nearestBus.id]) {
+                    busMarkers[nearestBus.id].openPopup();
+                }
+            }
+        }
+
+        function showAllRoutes() {
+            if (!map) return;
+
+            const allPoints = [];
+            routes.forEach(route => {
+                if (route.stops) {
+                    route.stops.forEach(stop => {
+                        allPoints.push([stop.lat, stop.lng]);
+                    });
+                }
+            });
+
+            if (allPoints.length > 0) {
+                const group = new L.featureGroup(allPoints.map(point => L.marker(point)));
+                map.fitBounds(group.getBounds().pad(0.1));
+            }
+        }
+
+        function showRouteOnMap(routeId) {
+            const route = routes.find(r => r.id === routeId);
+            if (route && route.stops && map) {
+                const bounds = L.latLngBounds(route.stops.map(stop => [stop.lat, stop.lng]));
+                map.fitBounds(bounds.pad(0.1));
+            }
+        }
+
+        function trackRoute(routeId) {
+            showRouteOnMap(routeId);
+            const routeBuses = buses.filter(bus => bus.routeId === routeId);
+            if (routeBuses.length > 0) {
+                alert(`Tracking ${routeBuses.length} buses on this route. Check the map for live locations.`);
+            }
+        }
+
+        function getFareForRoute(routeId, from, to) {
+            const route = routes.find(r => r.id === routeId);
+            if (route) {
+                alert(`Fare calculation for ${route.routeNumber} from ${from} to ${to}:\n\nEstimated fare: ₹10-15\nTravel time: 20-30 minutes\n\nNote: Actual fare may vary based on distance.`);
+            }
+        }
+
+        function getRouteColor(routeId) {
+            const route = routes.find(r => r.id === routeId);
+            return route ? route.color : '#6b7280';
+        }
+
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371; // Earth's radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // CRUD operations
+        async function deleteBus(busId) {
+            if (!confirm('Are you sure you want to delete this bus?')) return;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/buses/${busId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    alert('✅ Bus deleted successfully!');
+                    fetchData();
+                } else {
+                    throw new Error('Failed to delete bus');
+                }
+            } catch (error) {
+                console.error('Error deleting bus:', error);
+                // Remove from local array for demo
+                const index = buses.findIndex(bus => bus.id === busId);
+                if (index > -1) {
+                    buses.splice(index, 1);
+                    updateBusesTable();
+                    updateMap();
+                    alert('✅ Bus deleted successfully!');
+                }
+            }
+        }
+
+        function editBus(busId) {
+            const bus = buses.find(b => b.id === busId);
+            openModal('bus', bus);
+        }
+
+        function editRoute(routeId) {
+            const route = routes.find(r => r.id === routeId);
+            openModal('route', route);
+        }
+
+        async function deleteRoute(routeId) {
+            if (!confirm('Are you sure you want to delete this route?')) return;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/routes/${routeId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    alert('✅ Route deleted successfully!');
+                    fetchData();
+                } else {
+                    throw new Error('Failed to delete route');
+                }
+            } catch (error) {
+                console.error('Error deleting route:', error);
+                // Remove from local array for demo
+                const index = routes.findIndex(route => route.id === routeId);
+                if (index > -1) {
+                    routes.splice(index, 1);
+                    updateRoutesGrid();
+                    updateMap();
+                    alert('✅ Route deleted successfully!');
+                }
+            }
+        }
+
+        // Form submission
+        document.getElementById('modalForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            try {
+                showLoading(true);
+                const endpoint = data.routeNumber ? 'routes' : 'buses';
+                const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                if (response.ok) {
+                    alert('✅ Item saved successfully!');
+                    closeModal();
+                    fetchData();
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to save item');
+                }
+            } catch (error) {
+                console.error('Error saving item:', error);
+                alert('❌ Error: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        // Simulate real-time updates
+        setInterval(() => {
+            buses.forEach((bus, index) => {
+                // Simulate movement
+                const movement = 0.0002;
+                const angle = (Date.now() / 1000 + index * 60) * 0.02;
+                
+                bus.lat += Math.sin(angle) * movement;
+                bus.lng += Math.cos(angle) * movement;
+                
+                // Update speed randomly
+                bus.speed = Math.floor(15 + Math.random() * 35);
+                
+                // Update ETA
+                bus.eta = Math.max(1, bus.eta - 0.1 + Math.random() * 0.2);
+                if (bus.eta < 1) bus.eta = Math.floor(Math.random() * 15) + 5;
+                
+                // Update passengers occasionally
+                if (Math.random() > 0.95) {
+                    const change = Math.floor(Math.random() * 6 - 3);
+                    bus.passengers = Math.min(bus.capacity, Math.max(5, bus.passengers + change));
+                }
+            });
+            
+            // Update displays
+            updateMap();
+            updateNearbyBuses();
+            if (currentUserType === 'admin') {
+                updateAdminDashboard();
+            }
+        }, 5000);
+
+        console.log('🚌 SmartBus Dashboard Ready!');
+    </script>
+</body>
+</html>
