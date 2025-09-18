@@ -2,7 +2,6 @@
 
 A production-ready real-time bus tracking system with Zomato-like live tracking interface, built for Smart India Hackathon (SIH).
 
-![SmartBus Tracker](./docs/banner.png)
 
 ## 🎯 Overview
 
@@ -391,25 +390,3 @@ We welcome contributions! Please follow these steps:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 👥 Team
-
-- **Project Lead**: Your Name
-- **Backend Developer**: Team Member 1
-- **Frontend Developer**: Team Member 2
-- **Mobile Developer**: Team Member 3
-- **UI/UX Designer**: Team Member 4
-- **DevOps Engineer**: Team Member 5
-
-## 📞 Support
-
-For support, email support@smartbus.com or join our Slack channel.
-
-## 🙏 Acknowledgments
-
-- Smart India Hackathon for the opportunity
-- Google Maps Platform for mapping services
-- Open source community for amazing tools
-
----
-
-**Built with ❤️ for Smart India Hackathon 2024**
